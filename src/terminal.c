@@ -21,13 +21,48 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-#include <termios.h>
+#include "config.h"
+
 #include <stdio.h>
-#include <unistd.h>
+#include <stdbool.h>
 #include <string.h>
 #include <signal.h>
 
-#include "terminal.h"
+#if defined(BAR_WINDOWS)
+#include <windows.h>
+
+static DWORD restoreMode;
+static bool restoreModeValid = false;
+
+void BarTermInit () {
+	HANDLE const stdinHandle = GetStdHandle (STD_INPUT_HANDLE);
+	DWORD currentMode;
+
+	if (stdinHandle == INVALID_HANDLE_VALUE ||
+			!GetConsoleMode (stdinHandle, &currentMode)) {
+		return;
+	}
+
+	restoreMode = currentMode;
+	restoreModeValid = true;
+
+	currentMode &= ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
+	SetConsoleMode (stdinHandle, currentMode);
+}
+
+void BarTermRestore () {
+	if (!restoreModeValid) {
+		return;
+	}
+
+	HANDLE const stdinHandle = GetStdHandle (STD_INPUT_HANDLE);
+	if (stdinHandle != INVALID_HANDLE_VALUE) {
+		SetConsoleMode (stdinHandle, restoreMode);
+	}
+}
+#else
+#include <termios.h>
+#include <unistd.h>
 
 /* need a global variable here, since these functions get called from a signal
  * handler */
@@ -36,6 +71,7 @@ static struct termios restore;
 /*	init terminal attributes when continuing, assuming the shell modified them;
  *	tcget/setattr and signal are async signal safe */
 static void BarTermHandleCont (int sig) {
+	(void) sig;
 	BarTermInit ();
 }
 
@@ -55,4 +91,4 @@ void BarTermInit () {
 void BarTermRestore () {
 	tcsetattr (STDIN_FILENO, TCSANOW, &restore);
 }
-
+#endif

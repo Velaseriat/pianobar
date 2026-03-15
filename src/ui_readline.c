@@ -24,11 +24,17 @@ THE SOFTWARE.
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 #include <assert.h>
 
 #include "ui_readline.h"
 #include "main.h"
+
+#if defined(BAR_WINDOWS)
+#include <conio.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 /*	return size of previous UTF-8 character
  */
@@ -43,6 +49,17 @@ static size_t BarReadlinePrevUtf8 (char *ptr) {
 	return i;
 }
 
+#if defined(BAR_WINDOWS)
+static bool BarReadlineHasTimedOut (const DWORD startTick, const int timeout) {
+	if (timeout < 0) {
+		return false;
+	}
+
+	const DWORD elapsedMs = GetTickCount () - startTick;
+	return elapsedMs >= (DWORD) timeout * 1000;
+}
+#endif
+
 /*	readline replacement
  *	@param buffer
  *	@param buffer size
@@ -56,7 +73,6 @@ size_t BarReadline (char *buf, const size_t bufSize, const char *mask,
 		BarReadlineFds_t *input, const BarReadlineFlags_t flags, int timeout) {
 	size_t bufLen = 0;
 	unsigned char escapeState = 0;
-	fd_set set;
 	const bool echo = !(flags & BAR_RL_NOECHO);
 	bool done = false;
 
@@ -73,11 +89,97 @@ size_t BarReadline (char *buf, const size_t bufSize, const char *mask,
 
 	memset (buf, 0, bufSize);
 
+#if defined(BAR_WINDOWS)
+	const DWORD startTick = GetTickCount ();
+	while (!done) {
+		int curChar;
+
+		if (!_kbhit ()) {
+			if (BarReadlineHasTimedOut (startTick, timeout)) {
+				bufLen = 0;
+				break;
+			}
+			Sleep (25);
+			continue;
+		}
+
+		curChar = _getch ();
+		if (curChar == 0 || curChar == 0xE0) {
+			/* consume extended key sequences */
+			(void) _getch ();
+			continue;
+		}
+
+		unsigned char chr = (unsigned char) curChar;
+		switch (chr) {
+			case 3:
+				localInt += 1;
+				bufLen = 0;
+				done = true;
+				break;
+
+			case 4:
+			case 13:
+				done = true;
+				break;
+
+			case 21:
+				if (echo) {
+					while (bufLen > 0) {
+						const size_t moveSize = BarReadlinePrevUtf8 (&buf[bufLen]);
+						assert (bufLen >= moveSize);
+						fputs ("\b \b", stdout);
+						bufLen -= moveSize;
+					}
+					fflush (stdout);
+				}
+				bufLen = 0;
+				break;
+
+			case 8:
+			case 127:
+				if (bufLen > 0) {
+					size_t moveSize = BarReadlinePrevUtf8 (&buf[bufLen]);
+					assert (bufLen >= moveSize);
+					memmove (&buf[bufLen-moveSize], &buf[bufLen], moveSize);
+
+					bufLen -= moveSize;
+
+					if (echo) {
+						fputs ("\b \b", stdout);
+						fflush (stdout);
+					}
+				}
+				break;
+
+			default:
+				if (chr <= 0x1F) {
+					break;
+				}
+				if (mask != NULL && strchr (mask, chr) == NULL) {
+					break;
+				}
+				if (bufLen < bufSize-1) {
+					buf[bufLen] = chr;
+					++bufLen;
+					if (echo) {
+						putchar (chr);
+						fflush (stdout);
+					}
+					if (bufLen >= bufSize-1 && (flags & BAR_RL_FULLRETURN)) {
+						done = true;
+					}
+				}
+				break;
+		}
+	}
+#else
 	/* if fd is a fifo fgetc will always return EOF if nobody writes to
 	 * it, stdin will block */
 	while (!done) {
 		int curFd = -1;
 		unsigned char chr;
+		fd_set set;
 		struct timeval timeoutstruct;
 
 		/* select modifies set and timeout */
@@ -192,6 +294,7 @@ size_t BarReadline (char *buf, const size_t bufSize, const char *mask,
 				break;
 		} /* end switch */
 	} /* end while */
+#endif
 
 	if (echo) {
 		fputs ("\n", stdout);
@@ -240,4 +343,3 @@ bool BarReadlineYesNo (bool def, BarReadlineFds_t *input) {
 		return false;
 	}
 }
-

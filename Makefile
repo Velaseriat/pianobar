@@ -8,6 +8,18 @@ INCDIR:=${PREFIX}/include
 MANDIR:=${PREFIX}/share/man
 DYNLINK:=0
 CFLAGS?=-O2 -DNDEBUG
+EXEEXT:=
+THREAD_CFLAGS:=
+THREAD_LDFLAGS:=-lpthread
+
+ifeq ($(OS),Windows_NT)
+	EXEEXT:=.exe
+	THREAD_CFLAGS:=-D__USE_MINGW_ANSI_STDIO=1
+	THREAD_LDFLAGS:=-pthread
+	ifeq (${CC},cc)
+		CC:=gcc -std=c99
+	endif
+endif
 
 ifeq (${CC},cc)
 	OS := $(shell uname)
@@ -63,10 +75,11 @@ LIBAO_LDFLAGS:=$(shell $(PKG_CONFIG) --libs ao)
 
 # combine all flags
 ALL_CFLAGS:=${CFLAGS} -I ${LIBPIANO_INCLUDE} \
+			${THREAD_CFLAGS} \
 			${LIBAV_CFLAGS} ${LIBCURL_CFLAGS} \
 			${LIBGCRYPT_CFLAGS} ${LIBJSONC_CFLAGS} \
 			${LIBAO_CFLAGS}
-ALL_LDFLAGS:=${LDFLAGS} -lpthread -lm \
+ALL_LDFLAGS:=${LDFLAGS} ${THREAD_LDFLAGS} -lm \
 			${LIBAV_LDFLAGS} ${LIBCURL_LDFLAGS} \
 			${LIBGCRYPT_LDFLAGS} ${LIBJSONC_LDFLAGS} \
 			${LIBAO_LDFLAGS}
@@ -81,11 +94,11 @@ endif
 
 # build pianobar
 ifeq (${DYNLINK},1)
-pianobar: ${PIANOBAR_OBJ} libpiano.so.0
+pianobar$(EXEEXT): ${PIANOBAR_OBJ} libpiano.so.0
 	${SILENTECHO} "  LINK  $@"
 	${SILENTCMD}${CC} -o $@ ${PIANOBAR_OBJ} -L. -lpiano ${ALL_LDFLAGS}
 else
-pianobar: ${PIANOBAR_OBJ} ${LIBPIANO_OBJ}
+pianobar$(EXEEXT): ${PIANOBAR_OBJ} ${LIBPIANO_OBJ}
 	${SILENTECHO} "  LINK  $@"
 	${SILENTCMD}${CC} -o $@ ${PIANOBAR_OBJ} ${LIBPIANO_OBJ} ${ALL_LDFLAGS}
 endif
@@ -117,18 +130,18 @@ libpiano.so.0: ${LIBPIANO_RELOBJ} ${LIBPIANO_OBJ}
 clean:
 	${SILENTECHO} " CLEAN"
 	${SILENTCMD}${RM} ${PIANOBAR_OBJ} ${LIBPIANO_OBJ} \
-			${LIBPIANO_RELOBJ} pianobar libpiano.so* \
+			${LIBPIANO_RELOBJ} pianobar pianobar.exe libpiano.so* \
 			libpiano.a $(PIANOBAR_SRC:.c=.d) $(LIBPIANO_SRC:.c=.d)
 
-all: pianobar
+all: pianobar$(EXEEXT)
 
 ifeq (${DYNLINK},1)
-install: pianobar install-libpiano
+install: pianobar$(EXEEXT) install-libpiano
 else
-install: pianobar
+install: pianobar$(EXEEXT)
 endif
 	install -d ${DESTDIR}${BINDIR}/
-	install -m755 pianobar ${DESTDIR}${BINDIR}/
+	install -m755 pianobar$(EXEEXT) ${DESTDIR}${BINDIR}/
 	install -d ${DESTDIR}${MANDIR}/man1/
 	install -m644 contrib/pianobar.1 ${DESTDIR}${MANDIR}/man1/
 
@@ -142,7 +155,7 @@ install-libpiano:
 	install -m644 src/libpiano/piano.h ${DESTDIR}${INCDIR}/
 
 uninstall:
-	$(RM) ${DESTDIR}/${BINDIR}/pianobar \
+	$(RM) ${DESTDIR}/${BINDIR}/pianobar${EXEEXT} \
 	${DESTDIR}/${MANDIR}/man1/pianobar.1 \
 	${DESTDIR}/${LIBDIR}/libpiano.so.0.0.0 \
 	${DESTDIR}/${LIBDIR}/libpiano.so.0 \

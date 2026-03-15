@@ -31,9 +31,16 @@ THE SOFTWARE.
 #include <limits.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <ctype.h>
+#include <errno.h>
+#include <sys/stat.h>
+
+#if defined(BAR_WINDOWS)
+#include <direct.h>
+#else
 #include <pwd.h>
 #include <unistd.h>
-#include <ctype.h>
+#endif
 
 #include <piano.h>
 
@@ -54,13 +61,49 @@ static char *BarSettingsGetHome () {
 		return strdup (home);
 	}
 
+#if defined(BAR_WINDOWS)
+	if ((home = getenv ("USERPROFILE")) != NULL && strlen (home) > 0) {
+		return strdup (home);
+	}
+
+	const char * const drive = getenv ("HOMEDRIVE");
+	const char * const path = getenv ("HOMEPATH");
+	if (drive != NULL && path != NULL && strlen (drive) > 0 &&
+			strlen (path) > 0) {
+		const size_t len = strlen (drive) + strlen (path) + 1;
+		char * const combined = malloc (len * sizeof (*combined));
+		if (combined != NULL) {
+			snprintf (combined, len, "%s%s", drive, path);
+		}
+		return combined;
+	}
+#else
 	/* try passwd mechanism */
 	struct passwd * const pw = getpwuid (getuid ());
 	if (pw != NULL && pw->pw_dir != NULL && strlen (pw->pw_dir) > 0) {
 		return strdup (pw->pw_dir);
 	}
+#endif
 
 	return NULL;
+}
+
+static bool BarSettingsEnsureDir (const char * const dir) {
+	if (dir == NULL || *dir == '\0') {
+		return false;
+	}
+
+#if defined(BAR_WINDOWS)
+	if (_mkdir (dir) == 0 || errno == EEXIST) {
+		return true;
+	}
+#else
+	if (mkdir (dir, 0755) == 0 || errno == EEXIST) {
+		return true;
+	}
+#endif
+
+	return false;
 }
 
 /*	Get XDG config directory, which is set by BarSettingsRead (if not set)
@@ -150,9 +193,26 @@ void BarSettingsRead (BarSettings_t *settings) {
 	char * const userhome = BarSettingsGetHome ();
 	assert (userhome != NULL);
 	/* set xdg config path (if not set) */
+#if defined(BAR_WINDOWS)
+	const char * const appdata = getenv ("APPDATA");
+	char *defaultxdg;
+	if (appdata != NULL && strlen (appdata) > 0) {
+		defaultxdg = strdup (appdata);
+	} else {
+		defaultxdg = malloc (strlen (userhome) + strlen ("/.config") + 1);
+		sprintf (defaultxdg, "%s/.config", userhome);
+	}
+#else
 	char * const defaultxdg = malloc (strlen (userhome) + strlen ("/.config") + 1);
 	sprintf (defaultxdg, "%s/.config", userhome);
+#endif
 	setenv ("XDG_CONFIG_HOME", defaultxdg, 0);
+	BarSettingsEnsureDir (defaultxdg);
+	char * const packageDir = BarGetXdgConfigDir (PACKAGE);
+	if (packageDir != NULL) {
+		BarSettingsEnsureDir (packageDir);
+		free (packageDir);
+	}
 	free (defaultxdg);
 
 	assert (sizeof (settings->keys) / sizeof (*settings->keys) ==
@@ -184,9 +244,13 @@ void BarSettingsRead (BarSettings_t *settings) {
 	settings->device = strdup ("android-generic");
 	settings->inkey = strdup ("R=U!LH$O2B#");
 	settings->outkey = strdup ("6#26FRL$ZWD");
+#if defined(BAR_WINDOWS)
+	settings->fifo = NULL;
+#else
 	settings->fifo = BarGetXdgConfigDir (PACKAGE "/ctl");
-	settings->audioPipe = NULL;
 	assert (settings->fifo != NULL);
+#endif
+	settings->audioPipe = NULL;
 	settings->sampleRate = 0; /* default to stream sample rate */
 
 	settings->msgFormat[MSG_NONE].prefix = NULL;
@@ -483,4 +547,3 @@ void BarSettingsWrite (PianoStation_t *station, BarSettings_t *settings) {
 	fclose (fd);
 	free (path);
 }
-

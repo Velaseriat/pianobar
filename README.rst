@@ -161,6 +161,43 @@ __ https://6xq.net/pianobar/pianobar-2010.10.07.tar.bz2.sha1
 .. _2010.08.21: https://6xq.net/pianobar/pianobar-2010.08.21.tar.bz2
 __ https://6xq.net/pianobar/pianobar-2010.08.21.tar.bz2.sha1
 
+Windows
+-------
+
+This tree now includes a Windows compatibility path aimed at `MSYS2 MinGW`_.
+It is not a Visual Studio/MSVC project, but it is intended to build and run
+from a native Windows checkout without relying on OneDrive-backed paths.
+
+Current Windows limitations:
+
+- ``event_command`` is disabled
+- ``fifo`` control is disabled
+- ``audio_pipe`` is disabled
+
+Recommended packages in an ``mingw64.exe`` shell::
+
+	pacman -S --needed base-devel mingw-w64-x86_64-toolchain \
+		mingw-w64-x86_64-pkgconf mingw-w64-x86_64-libao \
+		mingw-w64-x86_64-curl mingw-w64-x86_64-libgcrypt \
+		mingw-w64-x86_64-json-c mingw-w64-x86_64-ffmpeg
+
+Then build with::
+
+	make clean
+	make
+
+The resulting executable is ``pianobar.exe``.
+
+To create a portable Windows bundle with ``pianobar.exe`` and the required
+MinGW DLLs, run from PowerShell::
+
+	powershell -ExecutionPolicy Bypass -File contrib/package-windows.ps1 -Zip
+
+This writes a portable folder to ``dist/windows-portable`` and optionally a
+zip file at ``dist/pianobar-windows-portable.zip``.
+
+.. _MSYS2 MinGW: https://www.msys2.org/
+
 Install
 -------
 

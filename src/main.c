@@ -29,23 +29,29 @@ THE SOFTWARE.
 #include <stdio.h>
 /* fork () */
 #include <unistd.h>
+#if !defined(BAR_WINDOWS)
 #include <sys/select.h>
+#endif
 #include <time.h>
 #include <ctype.h>
 /* open () */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-/* tcset/getattr () */
-#include <termios.h>
 #include <pthread.h>
 #include <assert.h>
 #include <stdbool.h>
 #include <limits.h>
 #include <signal.h>
+#if defined(BAR_WINDOWS)
+#include <windows.h>
+#else
+/* tcset/getattr () */
+#include <termios.h>
 /* waitpid () */
 #include <sys/types.h>
 #include <sys/wait.h>
+#endif
 
 /* pandora.com library */
 #include <piano.h>
@@ -111,52 +117,31 @@ static bool BarMainGetLoginCredentials (BarSettings_t *settings,
 			puts ("");
 			settings->password = strdup (passBuf);
 		} else {
-			pid_t chld;
-			int pipeFd[2];
-
 			BarUiMsg (settings, MSG_INFO, "Requesting password from external helper... ");
 
-			if (pipe (pipeFd) == -1) {
+			FILE * const cmd = popen (settings->passwordCmd, "r");
+			if (cmd == NULL) {
 				BarUiMsg (settings, MSG_NONE, "Error: %s\n", strerror (errno));
 				return false;
 			}
 
-			chld = fork ();
-			if (chld == 0) {
-				/* child */
-				close (pipeFd[0]);
-				dup2 (pipeFd[1], fileno (stdout));
-				execl ("/bin/sh", "/bin/sh", "-c", settings->passwordCmd, (char *) NULL);
-				BarUiMsg (settings, MSG_NONE, "Error: %s\n", strerror (errno));
-				close (pipeFd[1]);
-				exit (1);
-			} else if (chld == -1) {
-				BarUiMsg (settings, MSG_NONE, "Error: %s\n", strerror (errno));
-				return false;
+			memset (passBuf, 0, sizeof (passBuf));
+			fgets (passBuf, sizeof (passBuf), cmd);
+
+			/* drop trailing newlines */
+			ssize_t len = strlen (passBuf)-1;
+			while (len >= 0 && (passBuf[len] == '\n' || passBuf[len] == '\r')) {
+				passBuf[len] = '\0';
+				--len;
+			}
+
+			const int status = pclose (cmd);
+			if (status == 0) {
+				settings->password = strdup (passBuf);
+				BarUiMsg (settings, MSG_NONE, "Ok.\n");
 			} else {
-				/* parent */
-				int status;
-
-				close (pipeFd[1]);
-				memset (passBuf, 0, sizeof (passBuf));
-				read (pipeFd[0], passBuf, sizeof (passBuf)-1);
-				close (pipeFd[0]);
-
-				/* drop trailing newlines */
-				ssize_t len = strlen (passBuf)-1;
-				while (len >= 0 && passBuf[len] == '\n') {
-					passBuf[len] = '\0';
-					--len;
-				}
-
-				waitpid (chld, &status, 0);
-				if (WEXITSTATUS (status) == 0) {
-					settings->password = strdup (passBuf);
-					BarUiMsg (settings, MSG_NONE, "Ok.\n");
-				} else {
-					BarUiMsg (settings, MSG_NONE, "Error: Exit status %i.\n", WEXITSTATUS (status));
-					return false;
-				}
+				BarUiMsg (settings, MSG_NONE, "Error: Exit status %i.\n", status);
+				return false;
 			}
 		} /* end else passwordCmd */
 	}
@@ -419,12 +404,16 @@ static void intHandler (int signal) {
 }
 
 static void BarMainSetupSigaction () {
+#if defined(BAR_WINDOWS)
+	signal (SIGINT, intHandler);
+#else
 	struct sigaction act = {
 			.sa_handler = intHandler,
 			.sa_flags = 0,
 			};
 	sigemptyset (&act.sa_mask);
 	sigaction (SIGINT, &act, NULL);
+#endif
 }
 
 int main (int argc, char **argv) {
@@ -438,7 +427,9 @@ int main (int argc, char **argv) {
 	BarTermInit ();
 
 	/* signals */
+#if !defined(BAR_WINDOWS)
 	signal (SIGPIPE, SIG_IGN);
+#endif
 	BarMainSetupSigaction ();
 	interrupted = &app.doQuit;
 
@@ -475,8 +466,12 @@ int main (int argc, char **argv) {
 	assert (app.http != NULL);
 
 	/* init fds */
-	FD_ZERO(&app.input.set);
 	app.input.fds[0] = STDIN_FILENO;
+	app.input.fds[1] = -1;
+	app.input.maxfd = app.input.fds[0] + 1;
+
+#if !defined(BAR_WINDOWS)
+	FD_ZERO(&app.input.set);
 	FD_SET(app.input.fds[0], &app.input.set);
 
 	/* open fifo read/write so it won't EOF if nobody writes to it */
@@ -500,6 +495,7 @@ int main (int argc, char **argv) {
 	app.input.maxfd = app.input.fds[0] > app.input.fds[1] ? app.input.fds[0] :
 			app.input.fds[1];
 	++app.input.maxfd;
+#endif
 
 	BarMainLoop (&app);
 

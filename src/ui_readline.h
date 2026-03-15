@@ -24,7 +24,23 @@ THE SOFTWARE.
 #pragma once
 
 #include <stdbool.h>
+
+#include "config.h"
+
+#if defined(BAR_WINDOWS)
+typedef struct {
+	int maxfd;
+	int fds[2];
+} BarReadlineFds_t;
+#else
 #include <sys/select.h>
+
+typedef struct {
+	fd_set set;
+	int maxfd;
+	int fds[2];
+} BarReadlineFds_t;
+#endif
 
 /* bitfield */
 typedef enum {
@@ -34,16 +50,9 @@ typedef enum {
 	BAR_RL_NOINT = 4, /* don’t change interrupted variable */
 } BarReadlineFlags_t;
 
-typedef struct {
-	fd_set set;
-	int maxfd;
-	int fds[2];
-} BarReadlineFds_t;
-
 size_t BarReadline (char *, const size_t, const char *,
 		BarReadlineFds_t *, const BarReadlineFlags_t, int);
 size_t BarReadlineStr (char *, const size_t,
 		BarReadlineFds_t *, const BarReadlineFlags_t);
 size_t BarReadlineInt (int *, BarReadlineFds_t *);
 bool BarReadlineYesNo (bool, BarReadlineFds_t *);
-

@@ -31,13 +31,17 @@ THE SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#if !defined(BAR_WINDOWS)
 #include <strings.h>
+#endif
 #include <assert.h>
 #include <ctype.h> /* tolower() */
 
+#if !defined(BAR_WINDOWS)
 /* waitpid () */
 #include <sys/types.h>
 #include <sys/wait.h>
+#endif
 
 #include "ui.h"
 #include "debug.h"
@@ -898,6 +902,21 @@ void BarUiStartEventCmd (const BarSettings_t *settings, const char *type,
 		const PianoStation_t *curStation, const PianoSong_t *curSong,
 		player_t * const player, PianoStation_t *stations,
 		PianoReturn_t pRet, CURLcode wRet) {
+#if defined(BAR_WINDOWS)
+	(void) type;
+	(void) curStation;
+	(void) curSong;
+	(void) player;
+	(void) stations;
+	(void) pRet;
+	(void) wRet;
+
+	if (settings->eventCmd != NULL) {
+		BarUiMsg (settings, MSG_INFO,
+				"event_command is not supported on Windows builds yet.\n");
+	}
+	return;
+#else
 	pid_t chld;
 	int pipeFd[2];
 
@@ -1000,6 +1019,7 @@ void BarUiStartEventCmd (const BarSettings_t *settings, const char *type,
 		/* wait to get rid of the zombie */
 		waitpid (chld, &status, 0);
 	}
+#endif
 }
 
 /*	prepend song to history
